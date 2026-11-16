@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa de datasets · CORA.RDR UPC</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+<style>
+  :root { --azul:#1F4E78; --gris:#5b6770; --borde:#d9dee3; --fondo:#f6f8fa; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1c2329; }
+  body { display: flex; flex-direction: column; }
+  header { background: var(--azul); color: #fff; padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; }
+  header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+  header .sub { font-size: .85rem; opacity: .85; }
+  .barra { background: var(--fondo); border-bottom: 1px solid var(--borde); padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center; font-size: .9rem; }
+  .barra strong { font-size: 1.05rem; }
+  .barra label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  #aviso { display: none; background: #fff4e5; color: #7a4b00; padding: 12px 20px; font-size: .9rem; border-bottom: 1px solid #f0d9b5; }
+  #mapa { flex: 1; min-height: 300px; }
+  footer { font-size: .78rem; color: var(--gris); padding: 6px 20px; border-top: 1px solid var(--borde); background: #fff; }
+  .popup h3 { margin: 0 0 6px; font-size: .95rem; line-height: 1.25; }
+  .popup p { margin: 2px 0; font-size: .82rem; color: var(--gris); }
+  .popup a.enlace { display: inline-block; margin-top: 6px; font-size: .85rem; color: var(--azul); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Datasets de investigación de la UPC</h1>
+  <span class="sub">Ubicación de los datos publicados en CORA.RDR</span>
+</header>
+<div class="barra">
+  <span><strong id="n-ubic">–</strong> datasets con ubicación de <span id="n-total">–</span> publicados</span>
+  <label><input type="checkbox" id="chk-intl"> Mostrar ubicaciones internacionales (<span id="n-intl">0</span>)</label>
+</div>
+<div id="aviso"></div>
+<div id="mapa"></div>
+<footer>Datos: CORA.RDR (CSUC) · actualizado el <span id="fecha">–</span> · Mapa base © colaboradores de OpenStreetMap</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script>
+const VISTA_INICIAL = { centro: [41.6, 2.0], zoom: 8 };
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const mapa = L.map("mapa").setView(VISTA_INICIAL.centro, VISTA_INICIAL.zoom);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 18, attribution: "&copy; OpenStreetMap"
+}).addTo(mapa);
+
+const grupo = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45 });
+mapa.addLayer(grupo);
+let capaArea = null;
+let datos = [];
+
+function quitarArea() { if (capaArea) { mapa.removeLayer(capaArea); capaArea = null; } }
+mapa.on("popupclose", quitarArea);
+
+function contenido(u) {
+  const url = /^https?:\/\//.test(u.url) ? u.url : "";
+  const lugar = [u.lugar, u.pais].filter(Boolean).join(", ");
+  return '<div class="popup"><h3>' + esc(u.titulo) + "</h3>" +
+    (lugar ? "<p>" + esc(lugar) + "</p>" : "") +
+    (u.tipo === "area" ? "<p>Área geográfica de estudio</p>" : "") +
+    "<p>" + esc(u.doi) + (u.anio ? " · " + esc(u.anio) : "") + "</p>" +
+    (url ? '<a class="enlace" target="_blank" rel="noopener" href="' + esc(url) + '">Ver en CORA →</a>' : "") +
+    "</div>";
+}
+
+function pintar(conInternacionales) {
+  grupo.clearLayers(); quitarArea();
+  const visibles = datos.filter(u => conInternacionales || !u.internacional);
+  visibles.forEach(u => {
+    const m = L.marker([u.lat, u.lon]).bindPopup(contenido(u), { maxWidth: 300 });
+    if (u.bbox) {
+      m.on("click", () => {
+        quitarArea();
+        capaArea = L.rectangle([[u.bbox[0], u.bbox[1]], [u.bbox[2], u.bbox[3]]],
+          { color: "#1F4E78", weight: 1, fillOpacity: 0.12 }).addTo(mapa);
+      });
+    }
+    grupo.addLayer(m);
+  });
+  if (conInternacionales && visibles.length) {
+    mapa.fitBounds(grupo.getBounds().pad(0.1), { maxZoom: 6 });
+  } else {
+    mapa.setView(VISTA_INICIAL.centro, VISTA_INICIAL.zoom);
+  }
+}
+
+function mostrarAviso(msg) {
+  const a = document.getElementById("aviso"); a.textContent = msg; a.style.display = "block";
+}
+
+fetch("datos_mapa.json", { cache: "no-cache" })
+  .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+  .then(j => {
+    datos = j.ubicaciones || [];
+    document.getElementById("n-ubic").textContent = j.con_ubicacion;
+    document.getElementById("n-total").textContent = j.total_publicados;
+    document.getElementById("fecha").textContent = j.generado || "–";
+    const intl = new Set(datos.filter(u => u.internacional).map(u => u.doi));
+    document.getElementById("n-intl").textContent = intl.size;
+    pintar(false);
+    document.getElementById("chk-intl").addEventListener("change", e => pintar(e.target.checked));
+  })
+  .catch(err => mostrarAviso("No se pudieron cargar los datos (" + err.message +
+    "). Si has abierto este archivo haciendo doble clic, el navegador lo bloquea: " +
+    "tiene que servirse desde una web (GitHub Pages) o con un servidor local."));
+</script>
+</body>
+</html>
